@@ -29,6 +29,15 @@ Gate classification strings the provider understands:
 | `reachable:whitelisted+authn via <pattern>` | authenticated through a whitelist pattern | no |
 | `OPEN:... via <pattern>` | reachable without authentication | **yes** |
 | `BLOCKED:...` | no filter covers it; the gate returns 403 | **yes** |
+| `reachable:external,<deps>` / `reachable:internal,<deps>` | exposed service, route checks an auth dependency | no |
+| `OPEN:external,no-auth` | internet-exposed service, route has no authentication | **yes** |
+| `OPEN:internal-gateway,no-auth` | reachable from the company network without authentication | **yes**, evidence says internal network |
+| `internal:cluster-only,...` | no gateway; reachable only from inside the mesh | no, evidence gives the caller count |
+
+Any classification may carry a trailing ` @<environment>` naming the deployment environment it was derived from; the provider repeats it in the evidence.
+
+### Exposure facts
+`kind=exposure` rows, one per deployment and environment, say how a service is reachable: `object` is `external`, `internal` or `cluster-only`, `subject` is the environment, `file` the values file that decided it. `kind=exposure_host` rows list the hostnames. The provider uses the strongest exposure across environments when it classifies a **new** route in a repository that has no whitelist patterns: external or internal exposure with no route-level authentication in that repository answers **yes**; cluster-only answers **no** with the caller count; a repository whose existing routes mostly carry authentication dependencies answers **unknown**, because the answer depends on whether the new handler declares the dependency, which the gate cannot see.
 
 For a route the store has never seen, the provider collects every `via <pattern>` from the repository's `route_gate` rows and matches the candidate route against them: a trailing `*` matches any depth, `{param}` segments match any single segment. Matching an authenticated pattern answers `no`; matching an open pattern, or matching nothing, answers `yes`.
 

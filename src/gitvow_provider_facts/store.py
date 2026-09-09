@@ -61,6 +61,11 @@ class Gate:
         return self.classification.startswith(("OPEN", "BLOCKED"))
 
     @property
+    def env(self) -> str | None:
+        m = re.search(r"@(\S+)$", self.classification)
+        return m.group(1) if m else None
+
+    @property
     def pattern(self) -> str | None:
         m = re.search(r"\bvia\s+(\S+)", self.classification)
         return m.group(1) if m else None
@@ -119,6 +124,28 @@ class Store:
             if m:
                 seen[m.group(1)] = not (obj or "").startswith("OPEN")
         return sorted(seen.items())
+
+    def exposure(self, repo: str) -> tuple[str, str, str] | None:
+        """Strongest (class, env, file) across environments, or None when the deployment is unknown."""
+        rank = {"external": 3, "internal": 2, "cluster-only": 1}
+        best: tuple[str, str, str] | None = None
+        for env, klass, file in self.db.execute(
+            "select subject, object, file from fact where repo=? and kind='exposure'", (repo,)
+        ):
+            if klass in rank and (best is None or rank[klass] > rank[best[0]]):
+                best = (klass, env or "", file or "")
+        return best
+
+    def auth_style(self, repo: str) -> tuple[int, int]:
+        """(routes with a recorded auth dependency, total routes) for the repository."""
+        row = self.db.execute(
+            "select sum(case when coalesce(object,'')<>'' then 1 else 0 end), count(*) from fact where repo=? and kind='route'",
+            (repo,),
+        ).fetchone()
+        return (row[0] or 0, row[1] or 0)
+
+    def caller_count(self, service: str) -> int:
+        return int(self.db.execute("select count(*) from edge where dst_service=?", (service,)).fetchone()[0])
 
     def has_gate_data(self, repo: str) -> bool:
         return (

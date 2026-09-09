@@ -80,21 +80,63 @@ def answer(cfg: Config, req: dict[str, Any]) -> dict[str, Any]:
         exposed = [g for g in gates if g.exposed]
         if exposed:
             g = exposed[0]
-            return {
-                "answer": "yes",
-                "evidence": [resolved, f"recorded gate: {g.classification}", f"declared in {g.file}", age],
-                "confidence": 0.9,
-            }
-        return {
-            "answer": "no",
-            "evidence": [resolved, f"recorded gate: {gates[0].classification}", age],
-            "confidence": 0.9,
-        }
+            ev = [resolved, f"recorded gate: {g.classification}", f"declared in {g.file}"]
+            return {"answer": "yes", "evidence": [*ev, age], "confidence": 0.9}
+        g0 = gates[0]
+        ev = [resolved, f"recorded gate: {g0.classification}"]
+        if g0.classification.startswith("internal:"):
+            ev.append(f"cluster-only; {st.caller_count(service)} recorded callers into service {service}")
+        return {"answer": "no", "evidence": [*ev, age], "confidence": 0.9}
     if not st.has_gate_data(repo):
         return {
             "answer": "unknown",
             "evidence": [resolved, f"no gate classification recorded for repo {repo}", age],
             "confidence": 0.3,
+        }
+    patterns = st.whitelist_patterns(repo)
+    if not patterns:
+        # no whitelist in this service: a new route inherits the deployment's exposure and the service's auth style
+        exp = st.exposure(repo)
+        if not exp:
+            return {
+                "answer": "unknown",
+                "evidence": [resolved, f"no deployment exposure recorded for repo {repo}", age],
+                "confidence": 0.3,
+            }
+        klass, env, vfile = exp
+        with_auth, total = st.auth_style(repo)
+        if klass == "cluster-only":
+            return {
+                "answer": "no",
+                "evidence": [
+                    resolved,
+                    f"new route; service is cluster-only in {env} ({vfile})",
+                    f"{st.caller_count(service)} recorded callers into service {service}",
+                    age,
+                ],
+                "confidence": 0.8,
+            }
+        if total and with_auth / total >= 0.5:
+            return {
+                "answer": "unknown",
+                "evidence": [
+                    resolved,
+                    f"new route; service is {klass} in {env} and authenticates per route "
+                    f"({with_auth} of {total} routes declare an auth dependency); add the dependency to the new handler",
+                    age,
+                ],
+                "confidence": 0.5,
+            }
+        where = "reachable from the internet" if klass == "external" else "reachable from the company network"
+        return {
+            "answer": "yes",
+            "evidence": [
+                resolved,
+                f"new route; service is {klass} in {env} ({vfile}) and its routes carry no authentication: "
+                f"the route would be {where} without authentication",
+                age,
+            ],
+            "confidence": 0.8,
         }
     for pattern, authenticated in st.whitelist_patterns(repo):
         if route_matches(pattern, route):

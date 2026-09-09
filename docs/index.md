@@ -6,7 +6,7 @@ The gate in [gitvow](https://wirevow.dev/gitvow/) can ask an external program th
 
 | Question | Answer from the store |
 |---|---|
-| `route_gate` | Resolves the edited literal to a full route using the routes already recorded for the same file, then classifies it: an existing route reports its recorded gate; a new route is matched against the whitelist patterns the store knows. `yes` when the route would be open without authentication, or would be blocked by the gate because no pattern covers it. |
+| `route_gate` | Resolves the edited literal to a full route using the routes already recorded for the same file, then classifies it: an existing route reports its recorded gate; a new route is matched against the whitelist patterns the store knows, or, where a repository has none, against the deployment's exposure and the authentication style of its existing routes. `yes` when the route would be reachable without authentication from outside the mesh, or blocked by a gate because no pattern covers it. |
 | `route_callers` | Inbound edges whose destination is this service and whose path matches the route, parameters included. `yes` when at least one caller exists, naming each calling repository, call site and verb. |
 | `gate_bearing` | Files you name with `--gate-file` globs (authorization filters, whitelists, production values). The store does not record which files gate; you do. |
 

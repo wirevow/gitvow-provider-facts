@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gitvow-provider-facts"
-version = "0.1.0"
+version = "0.2.0"
 description = "gitvow provider answering gate questions from a derived fact store of routes, gates and callers."
 readme = "README.md"
 requires-python = ">=3.9"

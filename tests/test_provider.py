@@ -152,3 +152,106 @@ def test_works_with_gitvow_as_subprocess(store, tmp_path):
         check=True,
     )
     assert json.loads(r.stdout)["answer"] == "yes"
+
+
+def _add_exposure(store, repo, env, klass, file="values/production-in/x/values.yaml"):
+    import sqlite3
+
+    db = sqlite3.connect(store)
+    db.execute(
+        "insert into fact(repo,kind,subject,predicate,object,file) values (?,?,?,?,?,?)",
+        (repo, "exposure", env, "exposed_as", klass, file),
+    )
+    db.commit()
+    db.close()
+
+
+def _add_routes(store, repo, rows):
+    import sqlite3
+
+    db = sqlite3.connect(store)
+    db.executemany(
+        "insert into fact(repo,kind,subject,predicate,object,file) values (?,?,?,?,?,?)",
+        [(repo, k, s, "x", o, f) for k, s, o, f in rows],
+    )
+    db.commit()
+    db.close()
+
+
+def test_estate_vocabulary_recorded_gates(store):
+    _add_routes(
+        store,
+        "internal-svc",
+        [
+            ("route", "GET /v1/jobs", "", "app/api.py"),
+            ("route_gate", "GET /v1/jobs", "OPEN:internal-gateway,no-auth @production-in", "app/api.py"),
+            ("route", "GET /v1/inner", "", "app/inner.py"),
+            ("route_gate", "GET /v1/inner", "internal:cluster-only,trusted-caller @production-in", "app/inner.py"),
+        ],
+    )
+    import sqlite3
+
+    db = sqlite3.connect(store)
+    db.execute(
+        "insert into edge(src_repo,src_site,dst_service,dst_path,verb,matched_route) values ('a','x:1','internal-svc','/v1/inner','GET',1)"
+    )
+    db.commit()
+    db.close()
+    c = Config(store, repo="internal-svc", service="internal-svc")
+    r = answer(c, {"question": "route_gate", "subject": "/v1/jobs", "path": "app/api.py"})
+    assert r["answer"] == "yes" and "internal-gateway" in r["evidence"][1]
+    r = answer(c, {"question": "route_gate", "subject": "/v1/inner", "path": "app/inner.py"})
+    assert r["answer"] == "no" and "cluster-only; 1 recorded callers" in r["evidence"][2]
+
+
+def test_new_route_classified_from_exposure(store):
+    # an internal-gateway Java service with no auth anywhere: a new route is reachable without auth -> yes
+    _add_routes(
+        store,
+        "svc-a",
+        [
+            ("route", "GET /v1/a", "", "A.java"),
+            ("route_gate", "GET /v1/a", "OPEN:internal-gateway,no-auth @production-in", "A.java"),
+        ],
+    )
+    _add_exposure(store, "svc-a", "production-in", "internal")
+    r = answer(
+        Config(store, repo="svc-a", service="svc-a"), {"question": "route_gate", "subject": "/v1/new", "path": "A.java"}
+    )
+    assert r["answer"] == "yes" and "company network" in r["evidence"][1] and "production-in" in r["evidence"][1]
+    # a cluster-only service: new route is not reachable from outside the mesh -> no, with caller count
+    _add_routes(
+        store,
+        "svc-b",
+        [
+            ("route", "GET /x", "", "b.py"),
+            ("route_gate", "GET /x", "internal:cluster-only,trusted-caller @production-us", "b.py"),
+        ],
+    )
+    _add_exposure(store, "svc-b", "production-us", "cluster-only")
+    r = answer(
+        Config(store, repo="svc-b", service="svc-b"), {"question": "route_gate", "subject": "/y", "path": "b.py"}
+    )
+    assert r["answer"] == "no" and "cluster-only" in r["evidence"][1] and "recorded callers" in r["evidence"][2]
+    # a per-route-authenticated FastAPI service: unknown, tell the agent to add the dependency
+    _add_routes(
+        store,
+        "svc-c",
+        [
+            ("route", "GET /p", "require_org_request_context", "c.py"),
+            ("route", "GET /q", "require_org_request_context", "c.py"),
+            ("route_gate", "GET /p", "reachable:internal,require_org_request_context @production-in", "c.py"),
+        ],
+    )
+    _add_exposure(store, "svc-c", "production-in", "internal")
+    r = answer(
+        Config(store, repo="svc-c", service="svc-c"), {"question": "route_gate", "subject": "/r", "path": "c.py"}
+    )
+    assert r["answer"] == "unknown" and "authenticates per route" in r["evidence"][1]
+    # strongest exposure wins across environments
+    _add_exposure(store, "svc-a", "production-us", "external")
+    r = answer(
+        Config(store, repo="svc-a", service="svc-a"),
+        {"question": "route_gate", "subject": "/v1/new2", "path": "A.java"},
+    )
+    assert r["answer"] == "yes" and "internet" in r["evidence"][1] and "production-us" in r["evidence"][1]
