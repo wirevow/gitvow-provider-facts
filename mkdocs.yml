@@ -1,0 +1,9 @@
+site_name: gitvow-provider-facts
+site_url: https://wirevow.dev/gitvow-provider-facts/
+repo_url: https://github.com/wirevow/gitvow-provider-facts
+theme: {name: material, palette: {primary: indigo}}
+nav:
+  - Home: index.md
+  - Install and configure: install.md
+  - The fact store: store.md
+  - Security: security.md
