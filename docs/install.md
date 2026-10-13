@@ -15,6 +15,16 @@ gitvow-provider-facts --store facts.db --service orders ask route_callers /v1/or
 | `--gate-file GLOB` | none | repeatable; files that answer `gate_bearing` with `yes` |
 | `--max-age-days N` | 14 | above this, answers add a staleness warning to the evidence |
 
+## A code graph instead of a fact store
+
+`--graph graph.ndjson` reads a code graph exported as NDJSON, one record per line: nodes with a stable id, kind, file, line, name and repository, and edges with `from`, `to` and a relation. The defaults follow the compound-v1 convention, where an id is `<repo>:<lang>:<file>:<kind>:<name>` and a node missing a field has it read out of its id. Routes are nodes of kind `route` (name `GET /v1/orders`) or the targets of `HANDLES_ROUTE` edges; callers are the sources of `CALLS` edges into a route's handler, reported at their file and line. A graph whose keys differ takes `--graph-fields fields.json`:
+
+```json
+{"from": ["source"], "to": ["target"], "relation": ["label"], "calls": ["calls", "CALLS"], "handles_route": ["handles"], "route_kinds": ["endpoint"]}
+```
+
+A graph records no gate classification, deployment exposure or whitelist, so `route_gate` answers `unknown` with that reason; `gate_bearing` is answered from `--gate-file` as before. The age in every answer is the export file's age.
+
 ## Wire into gitvow
 
 In `.gitvow/policy.json` of the repository, or `~/.gitvow/policy.json`:

@@ -12,20 +12,32 @@ from .store import Store, normalize, route_matches
 
 @dataclass
 class Config:
-    store: str
+    store: str = ""
     repo: str = ""
     service: str = ""
     gate_files: list[str] = field(default_factory=list)
     max_age_days: float = 14
+    graph: str = ""  # an NDJSON code graph instead of a fact store (graph.py)
+    graph_fields: str = ""  # a field map for a graph whose record keys differ from the default
 
 
-def _age_evidence(st: Store, cfg: Config) -> str:
+def open_store(cfg: Config) -> Any:
+    """The fact store, or the graph: the same questions answered from whichever the operator configured."""
+    if cfg.graph:
+        from .graph import GraphStore, load_fields
+
+        return GraphStore(cfg.graph, load_fields(cfg.graph_fields or None))
+    return Store(cfg.store)
+
+
+def _age_evidence(st: Any, cfg: Config) -> str:
     days = st.age_days()
-    warn = " (STALE: rebuild the store)" if days > cfg.max_age_days else ""
-    return f"store built {int(days)} day{'s' if int(days) != 1 else ''} ago{warn}"
+    what = "graph exported" if cfg.graph else "store built"
+    warn = f" (STALE: rebuild the {'graph' if cfg.graph else 'store'})" if days > cfg.max_age_days else ""
+    return f"{what} {int(days)} day{'s' if int(days) != 1 else ''} ago{warn}"
 
 
-def resolve_route(st: Store, repo: str, literal: str, path: str) -> tuple[str, str]:
+def resolve_route(st: Any, repo: str, literal: str, path: str) -> tuple[str, str]:
     """Return (full route, how). Combine a method-level literal with the class-level prefix implied by the file."""
     lit = normalize(literal)
     known = [normalize(r) for r in st.routes_in_file(repo, path)] if path else []
@@ -47,7 +59,7 @@ def resolve_route(st: Store, repo: str, literal: str, path: str) -> tuple[str, s
 
 
 def answer(cfg: Config, req: dict[str, Any]) -> dict[str, Any]:
-    st = Store(cfg.store)
+    st = open_store(cfg)
     q = req.get("question")
     subject = str(req.get("subject") or "")
     path = str(req.get("path") or "")

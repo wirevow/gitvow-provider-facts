@@ -11,9 +11,16 @@ from .provider import Config, answer
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="gitvow-provider-facts", description="gitvow provider over a fact store.")
+    p = argparse.ArgumentParser(
+        prog="gitvow-provider-facts", description="gitvow provider over a fact store or an NDJSON code graph."
+    )
     p.add_argument("--version", action="version", version=f"gitvow-provider-facts {__version__}")
-    p.add_argument("--store", required=True)
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--store", help="a fact store (SQLite)")
+    src.add_argument("--graph", help="a code graph exported as NDJSON (nodes and edges with stable ids and file:line)")
+    p.add_argument(
+        "--graph-fields", default="", help="JSON field map for a graph whose record keys differ from the default"
+    )
     p.add_argument("--repo", default="")
     p.add_argument("--service", default="")
     p.add_argument("--gate-file", action="append", default=[])
@@ -24,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("subject")
     s.add_argument("--path", default="")
     a = p.parse_args(argv)
-    cfg = Config(a.store, a.repo, a.service, a.gate_file, a.max_age_days)
+    cfg = Config(
+        a.store or "", a.repo, a.service, a.gate_file, a.max_age_days, graph=a.graph or "", graph_fields=a.graph_fields
+    )
     if a.cmd == "ask":
         req = {
             "protocol": 1,
@@ -42,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         out = answer(cfg, req)
     except FileNotFoundError as e:
-        print(f"store not found: {e}", file=sys.stderr)
+        print(f"{'graph' if cfg.graph else 'store'} not found: {e}", file=sys.stderr)
         return 3
     json.dump(out, sys.stdout)
     print()
